@@ -100,9 +100,9 @@
                   </label>
                   <div v-if="metodoPago === 'transferencia'" class="alert alert-info mt-2">
                     <p class="mb-1"><strong>Banco:</strong> Bancolombia</p>
-                    <p class="mb-1"><strong>Cuenta de Ahorros:</strong> 123-456789-10</p>
-                    <p class="mb-1"><strong>Titular:</strong> Hat Trick SAS</p>
-                    <p class="mb-0">Envía el comprobante de pago al WhatsApp: +573146187857</p>
+                    <p class="mb-1"><strong>Cuenta de Ahorros:</strong> 233-0000-2178</p>
+                    <p class="mb-1"><strong>Titular:</strong> Fabian Amado</p>
+                    <p class="mb-0">Envía el comprobante de pago al WhatsApp: +573125141329</p>
                   </div>
                 </div>
                 
@@ -112,8 +112,8 @@
                     Nequi
                   </label>
                   <div v-if="metodoPago === 'nequi'" class="alert alert-info mt-2">
-                    <p class="mb-1"><strong>Número:</strong> 314 618 7857</p>
-                    <p class="mb-0">Envía el comprobante de pago al WhatsApp: +573146187857</p>
+                    <p class="mb-1"><strong>Número:</strong> 312 514 13 29</p>
+                    <p class="mb-0">Envía el comprobante de pago al WhatsApp: +573125141329</p>
                   </div>
                 </div>
                 

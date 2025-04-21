@@ -20,7 +20,7 @@
         <div class="row mb-4">
           <div class="col-md-4">
             <div class="form-group">
-              <label class="form-label">Tipo</label>
+              <label class="form-label">Material</label>
               <select class="form-select" v-model="filtroTipo">
                 <option value="todos">Todos</option>
                 <option value="cuero">Cuero</option>
@@ -32,7 +32,6 @@
             <div class="form-group">
               <label class="form-label">Ordenar por</label>
               <select class="form-select" v-model="ordenarPor">
-                <option value="nombre">Nombre</option>
                 <option value="precio-asc">Precio: Menor a Mayor</option>
                 <option value="precio-desc">Precio: Mayor a Menor</option>
               </select>
@@ -40,7 +39,7 @@
           </div>
           <div class="col-md-4">
             <div class="form-group">
-              <label class="form-label">Buscar</label>
+              <label class="form-label">Nombre del modelo</label>
               <input type="text" class="form-control" v-model="busqueda" placeholder="Buscar zapatillas...">
             </div>
           </div>

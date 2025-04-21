@@ -293,9 +293,10 @@ onMounted(() => {
 
 .mobile-user-info {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  text-align: right;
+  /* flex-direction: column; */ /* Comentado para alinear horizontalmente */
+  align-items: center; /* Centrar verticalmente */
+  /* align-items: flex-end; */ /* Comentado */
+  /* text-align: right; */ /* Comentado */
 }
 
 .mobile-user-info .user-greeting {
@@ -303,6 +304,13 @@ onMounted(() => {
   font-weight: 700;
   font-family: 'Montserrat', sans-serif;
   letter-spacing: 0.1rem;
+  margin-right: 0.5rem; /* Añadir espacio entre el saludo y el botón */
+}
+
+.mobile-user-info .nav-link {
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+  margin-left: 0.5rem; /* Añadir un pequeño margen si es necesario */
 }
 
 @media (max-width: 991.98px) {
@@ -363,6 +371,13 @@ onMounted(() => {
   /* Alinear bien el nombre y cerrar sesión */
   .user-greeting {
     margin-bottom: 0;
+  }
+
+  /* Ensure horizontal layout for user info in desktop */
+  #mainNav .navbar-nav .nav-item.d-lg-flex {
+    display: flex; /* Ensure flex display */
+    flex-direction: row; /* Force row direction */
+    align-items: center; /* Keep vertical alignment */
   }
 }
 

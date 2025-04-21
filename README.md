@@ -28,7 +28,7 @@ Proyecto de tienda en línea para zapatillas Hat Trick, desarrollado con Vue.js/
 
 1. Clona el repositorio:
 ```bash
-git clone <url-del-repositorio>
+git clone https://github.com/kiketach/Agent-Landing.git
 cd hat-trick-vue
 ```
 
@@ -56,7 +56,7 @@ Para iniciar el servidor de desarrollo:
 npm run dev
 ```
 
-La aplicación estará disponible en [http://localhost:3000](http://localhost:3000)
+La aplicación estará disponible en [http://localhost:3000]
 
 ## Estructura del Proyecto
 
@@ -87,22 +87,7 @@ Para previsualizar la versión de producción:
 ```bash
 npm run preview
 ```
-
-## Migración desde el Proyecto Original
-
-Este proyecto es una migración de un sitio web basado en HTML, CSS y JavaScript puro a un framework moderno (Vue.js/Nuxt.js). Las principales mejoras incluyen:
-
-1. Estructura modular y organizada del código
-2. Componentes reutilizables
-3. Gestión de estado centralizada con Pinia
-4. Mejor rendimiento y experiencia de usuario
-5. Rutas y navegación mejoradas
-6. Mantenibilidad y escalabilidad del código
-
 ## Contacto
 
 Para cualquier consulta, contáctanos en:
-
-- WhatsApp: +573146187857
-- Instagram: [@hat_trick_zap](https://www.instagram.com/hat_trick_zap/)
-- Facebook: [hat.trick.zapa.colombia](https://www.facebook.com/hat.trick.zapa.colombia)
+- Linkedin: (https://www.linkedin.com/in/enrique-abril-contreras/)
