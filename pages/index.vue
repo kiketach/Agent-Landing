@@ -344,4 +344,16 @@ definePageMeta({
     padding: 0 20px 20px;
   }
 }
+
+/* Ajustes para el banner en móvil */
+@media (max-width: 767.98px) { /* O el breakpoint que prefieras para móvil */
+  .masthead {
+    height: 60vh; /* Igual que en catalogo.vue */
+    min-height: 400px; /* Igual que en catalogo.vue */
+  }
+
+  .masthead-subheading {
+    font-size: 1.8rem; /* Opcional: ajustar tamaño de fuente para móvil */
+  }
+}
 </style> 

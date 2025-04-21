@@ -4,7 +4,7 @@
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title" id="chatModalLabel">
-            <i class="fas fa-comments me-2"></i> Habla con nosotros
+            <ClientOnly><i class="fas fa-comments me-2"></i></ClientOnly> Habla con nosotros
           </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
