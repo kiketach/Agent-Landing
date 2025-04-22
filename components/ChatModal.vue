@@ -3,13 +3,23 @@
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title" id="chatModalLabel">
-            <ClientOnly><i class="fas fa-comments me-2"></i></ClientOnly> Habla con nosotros
-          </h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <div class="d-flex justify-content-between align-items-center w-100">
+            <h5 class="modal-title mb-0" id="chatModalLabel">
+              <ClientOnly><i class="fas fa-comments me-2"></i></ClientOnly> Habla con nosotros
+            </h5>
+            <div class="d-flex align-items-center gap-3">
+              <button type="button" class="btn btn-outline-light" @click="vaciarChat">
+                <ClientOnly><i class="fas fa-trash me-2"></i></ClientOnly> Vaciar chat
+              </button>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+          </div>
         </div>
         <div class="modal-body">
           <div class="chat-container">
+            <div v-if="mensajeInicial" class="message customer-message">
+              {{ mensajeInicial }}
+            </div>
             <div class="chat-messages" ref="chatMessages">
               <div v-for="(message, index) in messages" :key="index" 
                    :class="['message', message.sender === 'user' ? 'user-message' : 'admin-message']">
@@ -46,16 +56,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue';
+import { ref, onMounted, nextTick, watch, onBeforeUnmount } from 'vue';
 import { useNuxtApp } from '#app';
 
 // Datos del chat
 const messages = ref([]);
 const newMessage = ref('');
 const chatMessages = ref(null);
-
-// Referencia al modal
 const chatModal = ref(null);
+const mensajeInicial = ref('');
 
 // Lógica de inicialización del chat (anteriormente parte de startChat)
 const initializeChat = async () => {
@@ -190,38 +199,37 @@ watch(messages, () => {
   scrollToBottom();
 }, { deep: true }); // Usar deep watch si los objetos dentro del array pueden cambiar
 
-onMounted(async () => {
-  // Inicializar modal con Bootstrap
-  try {
-    const { $bootstrap } = useNuxtApp();
-    if ($bootstrap && $bootstrap.Modal) {
-      const modalEl = document.getElementById('chatModal');
-      if (modalEl) {
-        chatModal.value = new $bootstrap.Modal(modalEl);
-        
-        // Escuchar evento 'shown.bs.modal' para inicializar el chat cuando se muestra el modal
-        modalEl.addEventListener('shown.bs.modal', async () => {
-          // Verificar si el chat ya fue inicializado para evitar múltiples inicializaciones
-          if (messages.value.length === 0) { 
-             await initializeChat();
-          }
-        });
-      }
-    } else if (typeof window !== 'undefined' && window.bootstrap) {
-      const modalEl = document.getElementById('chatModal');
-      if (modalEl) {
-        chatModal.value = new window.bootstrap.Modal(modalEl);
-         modalEl.addEventListener('shown.bs.modal', async () => {
-          if (messages.value.length === 0) {
-             await initializeChat();
-          }
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Error al inicializar el modal de chat:', error);
+// Función para vaciar el chat
+const vaciarChat = () => {
+  messages.value = [];
+  mensajeInicial.value = '';
+  
+  // Si hay un usuario autenticado, reinicializar el chat
+  const { $firebase } = useNuxtApp();
+  const { auth } = $firebase;
+  
+  if (auth.currentUser) {
+    initializeChat();
   }
+};
 
+onMounted(() => {
+  const modalElement = document.getElementById('chatModal');
+  if (modalElement) {
+    chatModal.value = new bootstrap.Modal(modalElement);
+    
+    // Escuchar el evento abrir-chat
+    window.addEventListener('abrir-chat', (event) => {
+      if (event.detail) {
+        mensajeInicial.value = event.detail;
+      }
+      chatModal.value.show();
+    });
+  }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('abrir-chat', () => {});
 });
 </script>
 

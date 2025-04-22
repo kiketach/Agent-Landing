@@ -8,21 +8,21 @@ export const useCartStore = defineStore('cart', {
   }),
   
   getters: {
-    cartCount: (state) => state.items.length,
+    cartCount: (state) => state.items?.length || 0,
     
     subtotal: (state) => {
-      if (!state.items || !state.items.length) {
+      if (!state.items?.length) {
         return 0;
       }
       return state.items.reduce((total, item) => {
-        const price = item && item.price ? Number(item.price) : 0;
-        const quantity = item && item.quantity ? Number(item.quantity) : 1;
+        const price = item?.price ? Number(item.price) : 0;
+        const quantity = item?.quantity ? Number(item.quantity) : 1;
         return total + (price * quantity);
       }, 0);
     },
     
     shippingCost: (state) => {
-      return state.items.length > 0 ? 15000 : 0; // Costo fijo de envío
+      return state.items?.length > 0 ? 15000 : 0; // Costo fijo de envío
     },
     
     total: (state) => {

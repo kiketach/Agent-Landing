@@ -42,9 +42,6 @@
           <li class="nav-item">
             <NuxtLink class="nav-link" to="/catalogo">Catálogo</NuxtLink>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" @click="openChatModal">Alguna duda?</a>
-          </li>
           
           <!-- Información del usuario y botones de sesión para desktop -->
           <li class="nav-item d-none d-lg-block" v-if="!authStore.isLoggedIn">
