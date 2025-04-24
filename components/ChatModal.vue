@@ -30,17 +30,18 @@
               </div>
             </div>
             
-            <div class="chat-input">
+            <div class="chat-input" :class="{ 'loading': isLoading }">
               <input 
                 type="text" 
                 v-model="newMessage" 
                 @keyup.enter="sendMessage" 
                 placeholder="Escribe tu mensaje aquí..." 
+                :disabled="isLoading"
               />
               <button 
                 class="btn btn-primary" 
                 @click="sendMessage" 
-                :disabled="!newMessage.trim()"
+                :disabled="!newMessage.trim() || isLoading"
               >
                 <ClientOnly>
                   <i class="fas fa-paper-plane"></i>
@@ -58,6 +59,7 @@
 <script setup>
 import { ref, onMounted, nextTick, watch, onBeforeUnmount } from 'vue';
 import { useNuxtApp } from '#app';
+import vertexAgent from '~/services/vertexAgent';
 
 // Datos del chat
 const messages = ref([]);
@@ -65,60 +67,57 @@ const newMessage = ref('');
 const chatMessages = ref(null);
 const chatModal = ref(null);
 const mensajeInicial = ref('');
+const isLoading = ref(false);
 
-// Lógica de inicialización del chat (anteriormente parte de startChat)
+// Información de la sesión con Vertex AI
+const sessionInfo = ref({
+  projectId: 'grounded-tine-454414-b2',
+  location: 'us-central1',
+  resourceId: '404629075114590208',
+  userId: 'anonymous_user',
+  sessionId: '9058476628769767424' // Sesión por defecto para usuarios anónimos
+});
+
+// Lógica de inicialización del chat
 const initializeChat = async () => {
-  const { $firebase } = useNuxtApp();
-  const { auth, db } = $firebase;
-  const currentUser = auth.currentUser;
-
-  if (!currentUser) {
-    console.warn("Usuario no autenticado al iniciar el chat.");
-    // Podrías añadir un mensaje indicando que se necesita iniciar sesión
+  try {
+    // Generar un ID de usuario único para esta sesión si no hay uno autenticado
+    const userId = generateUserId();
+    sessionInfo.value.userId = userId;
+    
+    console.log('Inicializando chat con sesión:', sessionInfo.value);
+    
+    // Mensaje inicial
     messages.value.push({
-      text: 'Por favor, inicia sesión para usar el chat.',
+      text: `Hola, ¿en qué podemos ayudarte?`,
       sender: 'admin',
       timestamp: new Date()
     });
-    return; // Salir si no hay usuario
-  }
-  
-  const userName = currentUser.displayName || 'Usuario'; // Usar nombre de Firebase o un genérico
-
-  // Mensaje inicial
-  messages.value.push({
-    text: `Hola ${userName}, ¿en qué podemos ayudarte?`,
-    sender: 'admin',
-    timestamp: new Date()
-  });
-  
-  // Guardar información inicial del chat en Firebase
-  try {
-    const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-    const chatRef = doc(db, "chats", currentUser.uid);
-      
-    // Considera si realmente necesitas guardar los mensajes aquí o solo al enviar el primero
-    await setDoc(chatRef, {
-      userName: userName, // Guardar nombre de usuario de Firebase
-      userEmail: currentUser.email, // Guardar email de Firebase
-      messages: messages.value, // Guardar mensaje inicial
-      startedAt: serverTimestamp(), // Usar serverTimestamp para consistencia
-      userId: currentUser.uid
-    }, { merge: true }); // Usar merge: true por si el chat ya existía
+    
+    // Scroll al fondo
+    await scrollToBottom();
   } catch (error) {
-    console.error("Error al guardar información inicial del chat:", error);
+    console.error("Error al inicializar chat:", error);
+    // Mensaje de error
+    messages.value.push({
+      text: "Lo sentimos, ha ocurrido un error al inicializar el chat. Por favor, inténtalo de nuevo más tarde.",
+      sender: 'admin',
+      timestamp: new Date()
+    });
   }
+};
 
-  // Asegurarse de hacer scroll después de añadir el mensaje inicial
-  await scrollToBottom();
+// Generar ID de usuario aleatorio para sesiones anónimas
+const generateUserId = () => {
+  return 'anonymous_' + Math.random().toString(36).substring(2, 15);
 };
 
 // Enviar mensaje
 const sendMessage = async () => {
-  if (!newMessage.value.trim()) return;
+  if (!newMessage.value.trim() || isLoading.value) return;
   
   const messageText = newMessage.value;
-  const timestamp = new Date(); // Usar la misma timestamp para UI y DB
+  const timestamp = new Date();
 
   const userMessage = {
     text: messageText,
@@ -134,46 +133,38 @@ const sendMessage = async () => {
   
   // Scroll al final después de añadir mensaje del usuario
   await scrollToBottom();
-
-  // Guardar mensaje del usuario en Firebase
+  
+  // Indicar que estamos cargando
+  isLoading.value = true;
+  
   try {
-    const { $firebase } = useNuxtApp();
-    const { auth, db } = $firebase;
+    // Enviar mensaje al agente Vertex AI
+    const agentResponse = await vertexAgent.sendMessage(messageText, sessionInfo.value);
     
-    if (auth.currentUser) {
-      const { doc, updateDoc, arrayUnion } = await import('firebase/firestore');
-      const chatRef = doc(db, "chats", auth.currentUser.uid);
-      
-      // Usar el objeto userMessage creado antes
-      await updateDoc(chatRef, {
-        messages: arrayUnion(userMessage) 
-      });
-
-      // Simular respuesta automática después de un breve retraso y guardar en Firebase
-      setTimeout(async () => {
-        const adminMessage = {
-          text: 'Gracias por contactarnos. Un asesor responderá a tu mensaje pronto. También puedes contactarnos directamente por WhatsApp al 312 5141329.',
-          sender: 'admin',
-          timestamp: new Date() // Nueva timestamp para la respuesta
-        };
-        messages.value.push(adminMessage);
-
-        // Guardar respuesta automática en Firebase
-        try {
-          await updateDoc(chatRef, {
-             messages: arrayUnion(adminMessage)
-          });
-        } catch (error) {
-           console.error("Error al guardar respuesta automática:", error);
-        }
-
-        // Hacer scroll al final después de la respuesta automática
-        await scrollToBottom();
-      }, 1000);
-
-    }
+    // Crear mensaje de respuesta del agente
+    const adminMessage = {
+      text: agentResponse,
+      sender: 'admin',
+      timestamp: new Date()
+    };
+    
+    // Agregar respuesta a la lista de mensajes
+    messages.value.push(adminMessage);
   } catch (error) {
-    console.error("Error al guardar mensaje del usuario:", error);
+    console.error("Error al procesar mensaje:", error);
+    
+    // Mensaje de error en caso de fallo
+    messages.value.push({
+      text: "Lo sentimos, ha ocurrido un error al procesar tu mensaje. Por favor, inténtalo de nuevo más tarde.",
+      sender: 'admin',
+      timestamp: new Date()
+    });
+  } finally {
+    // Finalizar carga
+    isLoading.value = false;
+    
+    // Scroll al final
+    await scrollToBottom();
   }
 };
 
@@ -181,8 +172,8 @@ const sendMessage = async () => {
 const formatTime = (timestamp) => {
   if (!timestamp) return '';
   
-  // Asegurarse que es un objeto Date, convertir si es Timestamp de Firebase
-  const date = timestamp instanceof Date ? timestamp : (timestamp?.toDate ? timestamp.toDate() : new Date());
+  // Asegurarse que es un objeto Date
+  const date = timestamp instanceof Date ? timestamp : new Date();
   return date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 };
 
@@ -197,20 +188,15 @@ const scrollToBottom = async () => {
 // Observar cambios en los mensajes para hacer scroll
 watch(messages, () => {
   scrollToBottom();
-}, { deep: true }); // Usar deep watch si los objetos dentro del array pueden cambiar
+}, { deep: true });
 
 // Función para vaciar el chat
 const vaciarChat = () => {
   messages.value = [];
   mensajeInicial.value = '';
   
-  // Si hay un usuario autenticado, reinicializar el chat
-  const { $firebase } = useNuxtApp();
-  const { auth } = $firebase;
-  
-  if (auth.currentUser) {
-    initializeChat();
-  }
+  // Reinicializar el chat
+  initializeChat();
 };
 
 onMounted(() => {
@@ -293,6 +279,7 @@ onBeforeUnmount(() => {
   padding: 0.75rem 1rem; /* Ajustar padding */
   border-top: 1px solid #e9ecef;
   background-color: #f8f9fa; /* Fondo ligeramente gris */
+  position: relative;
 }
 
 .chat-input input {
@@ -305,8 +292,34 @@ onBeforeUnmount(() => {
   outline: none; /* Quitar borde al enfocar */
   box-shadow: none; /* Quitar sombra al enfocar */
 }
-.chat-input input:focus {
-  border-color: #86b7fe; /* Cambiar color de borde al enfocar */
+
+/* Indicador de carga para cuando el agente está procesando */
+.chat-input::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(to right, transparent, #0d6efd, transparent);
+  opacity: 0;
+  transform: translateX(-100%);
+  transition: opacity 0.3s;
+}
+
+.chat-input.loading::after {
+  opacity: 1;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .chat-input button {
