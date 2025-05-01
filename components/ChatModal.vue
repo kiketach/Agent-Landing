@@ -87,14 +87,6 @@ const messages = ref([]);
 const newMessage = ref('');
 const chatMessages = ref(null);
 const chatModal = ref(null);
-const mensajeInicial = ref('');
-const sessionId = ref(''); // Nuevo ref para el session_id
-const deploymentId = ref('404629075114590208'); // ID de deployment fijo
-
-// Referencias para el manejo de archivos
-const fileInput = ref(null);
-const selectedFile = ref(null);
-const selectedFilePreview = ref('');
 
 // Lógica de inicialización del chat (anteriormente parte de startChat)
 const initializeChat = async () => {
