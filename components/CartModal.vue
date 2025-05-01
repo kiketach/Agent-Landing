@@ -55,15 +55,14 @@
           </client-only>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="vaciarCarritoSimple" :disabled="cartStore.items.length === 0">
+          <button type="button" class="btn btn-secondary" @click="vaciarCarritoSimple" :enabled="cartStore.items.length > 0">
             Vaciar Carrito
           </button>
           <button 
             type="button"
             class="btn btn-primary"
-            :class="{ 'disabled': cartStore.items.length === 0 }"
             @click="procederAlPago"
-            :disabled="cartStore.items.length === 0"
+            :enabled="cartStore.items.length > 0"
           >
             Proceder al Pago
           </button>

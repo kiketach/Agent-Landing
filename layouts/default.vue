@@ -9,6 +9,7 @@
     <LoginModal />
     <CartModal />
     <ChatModal />
+    <ChatButton />
   </div>
 </template>
 
@@ -19,6 +20,7 @@ import FooterComponent from '~/components/FooterComponent.vue';
 import LoginModal from '~/components/LoginModal.vue';
 import CartModal from '~/components/CartModal.vue';
 import ChatModal from '~/components/ChatModal.vue';
+import ChatButton from '~/components/ChatButton.vue';
 </script>
 
 <style scoped>

@@ -3,42 +3,75 @@
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title" id="chatModalLabel">
-            <ClientOnly><i class="fas fa-comments me-2"></i></ClientOnly> Habla con nosotros
-          </h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <div class="d-flex justify-content-between align-items-center w-100">
+            <h5 class="modal-title mb-0" id="chatModalLabel">
+              <ClientOnly><i class="fas fa-comments me-2"></i></ClientOnly> Habla con nosotros
+            </h5>
+            <div class="d-flex align-items-center gap-3">
+              <button type="button" class="btn btn-outline-light" @click="vaciarChat">
+                <ClientOnly><i class="fas fa-trash me-2"></i></ClientOnly> Vaciar chat
+              </button>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+          </div>
         </div>
         <div class="modal-body">
           <div class="chat-container">
+            <div v-if="mensajeInicial" class="message customer-message">
+              {{ mensajeInicial }}
+            </div>
             <div class="chat-messages" ref="chatMessages">
               <div v-for="(message, index) in messages" :key="index" 
                    :class="['message', message.sender === 'user' ? 'user-message' : 'admin-message']">
                 <div class="message-content">
-                  <p>{{ message.text }}</p>
+                  <!-- Si el mensaje tiene una imagen -->
+                  <img v-if="message.image" :src="message.image" class="message-image" alt="Imagen adjunta" />
+                  <!-- Renderizar el texto con enlaces clicables -->
+                  <p v-html="formatMessageWithLinks(message.text)"></p>
                   <span class="message-time">{{ formatTime(message.timestamp) }}</span>
                 </div>
               </div>
             </div>
             
             <div class="chat-input">
-              <input 
-                type="text" 
-                v-model="newMessage" 
-                @keyup.enter="sendMessage" 
-                placeholder="Escribe tu mensaje aquí..." 
-              />
-              <button 
-                class="btn btn-primary" 
-                @click="sendMessage" 
-                :disabled="!newMessage.trim()"
-              >
-                <ClientOnly>
-                  <i class="fas fa-paper-plane"></i>
-                </ClientOnly>
-              </button>
+              <div class="input-group">
+                <!-- Botón para adjuntar imagen -->
+                <label class="btn btn-outline-secondary attach-button" :class="{ 'has-file': selectedFile }">
+                  <input type="file" 
+                         accept="image/*" 
+                         class="d-none" 
+                         @change="handleFileSelect" 
+                         ref="fileInput">
+                  <ClientOnly>
+                    <i class="fas fa-paperclip"></i>
+                  </ClientOnly>
+                </label>
+                <input 
+                  type="text" 
+                  v-model="newMessage" 
+                  @keyup.enter="sendMessage" 
+                  placeholder="Escribe tu mensaje aquí..." 
+                  class="form-control"
+                />
+                <button 
+                  class="btn btn-primary" 
+                  @click="sendMessage" 
+                  :disabled="!newMessage.trim() && !selectedFile"
+                >
+                  <ClientOnly>
+                    <i class="fas fa-paper-plane"></i>
+                  </ClientOnly>
+                </button>
+              </div>
+              <!-- Preview de la imagen seleccionada -->
+              <div v-if="selectedFile" class="selected-file-preview">
+                <img :src="selectedFilePreview" class="preview-image" alt="Preview" />
+                <button class="btn btn-sm btn-danger remove-file" @click="removeSelectedFile">
+                  <ClientOnly><i class="fas fa-times"></i></ClientOnly>
+                </button>
+              </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>
@@ -46,16 +79,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue';
+import { ref, onMounted, nextTick, watch, onBeforeUnmount } from 'vue';
 import { useNuxtApp } from '#app';
 
 // Datos del chat
 const messages = ref([]);
 const newMessage = ref('');
 const chatMessages = ref(null);
-
-// Referencia al modal
 const chatModal = ref(null);
+const mensajeInicial = ref('');
+const sessionId = ref(''); // Nuevo ref para el session_id
+const deploymentId = ref('404629075114590208'); // ID de deployment fijo
+
+// Referencias para el manejo de archivos
+const fileInput = ref(null);
+const selectedFile = ref(null);
+const selectedFilePreview = ref('');
 
 // Lógica de inicialización del chat (anteriormente parte de startChat)
 const initializeChat = async () => {
@@ -104,67 +143,231 @@ const initializeChat = async () => {
   await scrollToBottom();
 };
 
-// Enviar mensaje
+// Modificar sendToAgent para manejar mejor la imagen
+const sendToAgent = async (message, imageData = null) => {
+  try {
+    console.log('Enviando mensaje al agente:', message);
+    const apiUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://us-central1-[TU-PROYECTO-ID].cloudfunctions.net/agent'
+      : '/api/agent';
+
+    // Preparar el mensaje
+    const requestBody = {
+      user_id: 'test_user',
+      session_id: '9058476628769767424',
+      message: message
+    };
+
+    // Si hay una imagen, incluirla en el cuerpo de la petición
+    if (imageData && imageData.startsWith('data:image/')) {
+      requestBody.image = imageData;
+    }
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    console.log('Estado de la respuesta:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Error en la respuesta del agente: ${response.status} ${errorText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error al comunicarse con el agente:', error);
+    throw error;
+  }
+};
+
+// Función para manejar la selección de archivos
+const handleFileSelect = async (event) => {
+  const file = event.target.files[0];
+  if (file && file.type.startsWith('image/')) {
+    try {
+      // Comprimir la imagen antes de convertirla a base64
+      const compressedImage = await compressImage(file);
+      selectedFile.value = file;
+      
+      // Crear preview de la imagen
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        selectedFilePreview.value = e.target.result;
+      };
+      reader.readAsDataURL(compressedImage);
+    } catch (error) {
+      console.error('Error al procesar la imagen:', error);
+      alert('Error al procesar la imagen. Por favor, intenta con otra imagen.');
+    }
+  }
+};
+
+// Función para comprimir la imagen
+const compressImage = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Calcular nuevas dimensiones manteniendo el aspect ratio
+        const maxSize = 800;
+        if (width > height) {
+          if (width > maxSize) {
+            height *= maxSize / width;
+            width = maxSize;
+          }
+        } else {
+          if (height > maxSize) {
+            width *= maxSize / height;
+            height = maxSize;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Convertir a blob con calidad reducida
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            }));
+          } else {
+            reject(new Error('Error al comprimir la imagen'));
+          }
+        }, 'image/jpeg', 0.7); // Calidad 70%
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
+// Función para remover el archivo seleccionado
+const removeSelectedFile = () => {
+  selectedFile.value = null;
+  selectedFilePreview.value = '';
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
+};
+
+// Función para convertir enlaces en el texto a elementos <a>
+const formatMessageWithLinks = (text) => {
+  if (!text) return '';
+  // Expresión regular para detectar URLs
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return text.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+  });
+};
+
+// Modificar la función sendMessage para manejar mejor las imágenes
 const sendMessage = async () => {
-  if (!newMessage.value.trim()) return;
+  if (!newMessage.value.trim() && !selectedFile.value) return;
   
   const messageText = newMessage.value;
-  const timestamp = new Date(); // Usar la misma timestamp para UI y DB
+  const timestamp = new Date();
 
+  // Si hay una imagen, convertirla a base64
+  let imageData = null;
+  if (selectedFile.value) {
+    imageData = selectedFilePreview.value;
+  }
+
+  // Crear el mensaje del usuario
   const userMessage = {
-    text: messageText,
+    text: messageText || 'Imagen adjunta',
     sender: 'user',
-    timestamp: timestamp
+    timestamp: timestamp,
+    image: imageData
   };
   
   // Agregar mensaje del usuario a la lista
   messages.value.push(userMessage);
   
-  // Limpiar campo de mensaje
+  // Limpiar campos
   newMessage.value = '';
+  removeSelectedFile();
   
   // Scroll al final después de añadir mensaje del usuario
   await scrollToBottom();
 
-  // Guardar mensaje del usuario en Firebase
   try {
-    const { $firebase } = useNuxtApp();
-    const { auth, db } = $firebase;
+    // Enviar mensaje al agente
+    const response = await sendToAgent(messageText, imageData);
     
-    if (auth.currentUser) {
-      const { doc, updateDoc, arrayUnion } = await import('firebase/firestore');
-      const chatRef = doc(db, "chats", auth.currentUser.uid);
-      
-      // Usar el objeto userMessage creado antes
-      await updateDoc(chatRef, {
-        messages: arrayUnion(userMessage) 
-      });
-
-      // Simular respuesta automática después de un breve retraso y guardar en Firebase
-      setTimeout(async () => {
-        const adminMessage = {
-          text: 'Gracias por contactarnos. Un asesor responderá a tu mensaje pronto. También puedes contactarnos directamente por WhatsApp al 312 5141329.',
-          sender: 'admin',
-          timestamp: new Date() // Nueva timestamp para la respuesta
-        };
-        messages.value.push(adminMessage);
-
-        // Guardar respuesta automática en Firebase
-        try {
-          await updateDoc(chatRef, {
-             messages: arrayUnion(adminMessage)
-          });
-        } catch (error) {
-           console.error("Error al guardar respuesta automática:", error);
+    // Extraer el texto del mensaje del agente
+    let messageContent = '';
+    
+    if (response.message) {
+      try {
+        // Si el mensaje es una cadena que parece JSON con comillas simples
+        if (typeof response.message === 'string' && response.message.includes("'")) {
+          // Reemplazar comillas simples por dobles
+          const jsonStr = response.message
+            .replace(/'/g, '"')
+            .replace(/\\n/g, '\\n');
+          
+          console.log('Procesando JSON:', jsonStr);
+          const parsedMessage = JSON.parse(jsonStr);
+          
+          if (parsedMessage.content?.parts?.[0]?.text) {
+            messageContent = parsedMessage.content.parts[0].text;
+          }
+        } else {
+          // Si es un objeto o una cadena simple
+          messageContent = typeof response.message === 'object' 
+            ? response.message.content?.parts?.[0]?.text || JSON.stringify(response.message)
+            : response.message;
         }
-
-        // Hacer scroll al final después de la respuesta automática
-        await scrollToBottom();
-      }, 1000);
-
+      } catch (e) {
+        console.error('Error al procesar el mensaje:', e);
+        messageContent = response.message;
+      }
     }
+
+    // Si no pudimos extraer el mensaje, usar un valor por defecto
+    if (!messageContent) {
+      messageContent = 'Lo siento, no pude procesar la respuesta correctamente.';
+    }
+    
+    // Agregar respuesta del agente
+    const agentMessage = {
+      text: messageContent.replace(/\\n/g, '\n'),
+      sender: 'admin',
+      timestamp: new Date()
+    };
+    
+    messages.value.push(agentMessage);
+    await scrollToBottom();
+
   } catch (error) {
-    console.error("Error al guardar mensaje del usuario:", error);
+    // En caso de error, mostrar mensaje de error
+    const errorMessage = {
+      text: error.message || 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta nuevamente.',
+      sender: 'admin',
+      timestamp: new Date()
+    };
+    
+    messages.value.push(errorMessage);
+    await scrollToBottom();
   }
 };
 
@@ -190,38 +393,37 @@ watch(messages, () => {
   scrollToBottom();
 }, { deep: true }); // Usar deep watch si los objetos dentro del array pueden cambiar
 
-onMounted(async () => {
-  // Inicializar modal con Bootstrap
-  try {
-    const { $bootstrap } = useNuxtApp();
-    if ($bootstrap && $bootstrap.Modal) {
-      const modalEl = document.getElementById('chatModal');
-      if (modalEl) {
-        chatModal.value = new $bootstrap.Modal(modalEl);
-        
-        // Escuchar evento 'shown.bs.modal' para inicializar el chat cuando se muestra el modal
-        modalEl.addEventListener('shown.bs.modal', async () => {
-          // Verificar si el chat ya fue inicializado para evitar múltiples inicializaciones
-          if (messages.value.length === 0) { 
-             await initializeChat();
-          }
-        });
-      }
-    } else if (typeof window !== 'undefined' && window.bootstrap) {
-      const modalEl = document.getElementById('chatModal');
-      if (modalEl) {
-        chatModal.value = new window.bootstrap.Modal(modalEl);
-         modalEl.addEventListener('shown.bs.modal', async () => {
-          if (messages.value.length === 0) {
-             await initializeChat();
-          }
-        });
-      }
-    }
-  } catch (error) {
-    console.error('Error al inicializar el modal de chat:', error);
+// Función para vaciar el chat
+const vaciarChat = () => {
+  messages.value = [];
+  mensajeInicial.value = '';
+  
+  // Si hay un usuario autenticado, reinicializar el chat
+  const { $firebase } = useNuxtApp();
+  const { auth } = $firebase;
+  
+  if (auth.currentUser) {
+    initializeChat();
   }
+};
 
+onMounted(() => {
+  const modalElement = document.getElementById('chatModal');
+  if (modalElement) {
+    chatModal.value = new bootstrap.Modal(modalElement);
+    
+    // Escuchar el evento abrir-chat
+    window.addEventListener('abrir-chat', (event) => {
+      if (event.detail) {
+        mensajeInicial.value = event.detail;
+      }
+      chatModal.value.show();
+    });
+  }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('abrir-chat', () => {});
 });
 </script>
 
@@ -351,5 +553,69 @@ onMounted(async () => {
 }
 .modal-body {
   padding: 0; /* Quitar padding del body para controlar el padding en .chat-container */
+}
+
+.message-image {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.attach-button {
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.attach-button.has-file {
+  background-color: #198754;
+  color: white;
+  border-color: #198754;
+}
+
+.selected-file-preview {
+  position: relative;
+  margin-top: 8px;
+  display: inline-block;
+}
+
+.preview-image {
+  max-height: 100px;
+  border-radius: 8px;
+}
+
+.remove-file {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  border-radius: 50%;
+  padding: 4px 8px;
+}
+
+/* Estilos para los enlaces en los mensajes */
+.message-content p a {
+  color: #0d6efd;
+  text-decoration: underline;
+}
+
+.message-content p a:hover {
+  color: #0a58ca;
+}
+
+.admin-message .message-content p a {
+  color: #0d6efd;
+}
+
+.user-message .message-content p a {
+  color: #0d6efd;
 }
 </style> 

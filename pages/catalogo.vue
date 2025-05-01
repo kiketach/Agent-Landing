@@ -102,6 +102,7 @@
                 <div class="mb-3">
                   <label class="form-label">Talla</label>
                   <select class="form-select" v-model="selectedProduct.talla">
+                    <option value="" disabled selected>Seleccione su talla</option>
                     <option value="35">35</option>
                     <option value="36">36</option>
                     <option value="37">37</option>
@@ -118,6 +119,7 @@
                 <div class="mb-3">
                   <label class="form-label">Tipo de Suela</label>
                   <select class="form-select" v-model="selectedProduct.suela">
+                    <option value="" disabled selected>Seleccione tipo de suela</option>
                     <option value="Goma">Goma</option>
                     <option value="Colores">Colores</option>
                     <option value="Negra">Negra</option>
@@ -147,8 +149,12 @@
                   </div>
                 </div>
                 
-                <button class="btn btn-primary w-100" @click="addToCart">
+                <button class="btn btn-primary w-100 mb-2" @click="addToCart">
                   Agregar al Carrito
+                </button>
+                
+                <button class="btn btn-outline-primary w-100 mt-2" @click="handleChatClick">
+                  Hablar con un asesor
                 </button>
               </div>
             </div>
@@ -248,8 +254,8 @@ const selectedProduct = ref({
   mainImage: '',
   images: [],
   price: 0,
-  talla: '38',
-  suela: 'Goma',
+  talla: '',
+  suela: '',
   personalizado: false,
   nombre: '',
   numero: ''
@@ -299,8 +305,8 @@ const openProductModal = (producto) => {
     mainImage: producto.images[0],
     images: producto.images,
     price: producto.price,
-    talla: '38',
-    suela: 'Goma',
+    talla: '',
+    suela: '',
     personalizado: false,
     nombre: '',
     numero: ''
@@ -313,7 +319,7 @@ const openProductModal = (producto) => {
 
 // Mostrar imagen en zoom
 const showZoomedImage = (image) => {
-  zoomImage.value = `/img/portfolio/${image}`;
+  zoomImage.value = getImageUrl(image);
   if (zoomModal.value) {
     zoomModal.value.show();
   }
@@ -358,6 +364,31 @@ const addToCart = () => {
   cartStore.addToCart(product);
   
   // Cerrar modal
+  if (productModal.value) {
+    productModal.value.hide();
+  }
+};
+
+// Función para abrir el chat
+const handleChatClick = () => {
+  // Obtener el número/color del modelo desde el nombre de la imagen
+  const modeloEspecifico = selectedProduct.value.mainImage.replace('.png', '');
+  
+  const productDetails = {
+    title: selectedProduct.value.title,
+    description: selectedProduct.value.description,
+    modelo: modeloEspecifico,
+    talla: selectedProduct.value.talla || 'no seleccionada',
+    suela: selectedProduct.value.suela || 'no seleccionada',
+    price: formatPrice(selectedProduct.value.price)
+  };
+  
+  const mensaje = `Hola, estoy interesado en el modelo ${productDetails.title} ${productDetails.modelo} (${productDetails.description}) con talla ${productDetails.talla} y suela ${productDetails.suela}. Precio: $${productDetails.price}`;
+  
+  // Crear y disparar el evento personalizado
+  const event = new CustomEvent('abrir-chat', { detail: mensaje });
+  window.dispatchEvent(event);
+  
   if (productModal.value) {
     productModal.value.hide();
   }
