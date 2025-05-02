@@ -87,6 +87,10 @@ const messages = ref([]);
 const newMessage = ref('');
 const chatMessages = ref(null);
 const chatModal = ref(null);
+const selectedFile = ref(null);
+const selectedFilePreview = ref('');
+const fileInput = ref(null);
+const mensajeInicial = ref('');
 
 // Lógica de inicialización del chat (anteriormente parte de startChat)
 const initializeChat = async () => {
