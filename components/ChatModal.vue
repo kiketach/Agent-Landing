@@ -21,7 +21,7 @@
               {{ mensajeInicial }}
             </div>
             <div class="chat-messages" ref="chatMessages">
-              <div v-for="(message, index) in messages" :key="index" 
+              <div v-for="(message, index) in messages" :key="index"
                    :class="['message', message.sender === 'user' ? 'user-message' : 'admin-message']">
                 <div class="message-content">
                   <!-- Si el mensaje tiene una imagen -->
@@ -32,31 +32,31 @@
                 </div>
               </div>
             </div>
-            
+
             <div class="chat-input">
               <div class="input-group">
                 <!-- Botón para adjuntar imagen -->
                 <label class="btn btn-outline-secondary attach-button" :class="{ 'has-file': selectedFile }">
-                  <input type="file" 
-                         accept="image/*" 
-                         class="d-none" 
-                         @change="handleFileSelect" 
+                  <input type="file"
+                         accept="image/*"
+                         class="d-none"
+                         @change="handleFileSelect"
                          ref="fileInput">
                   <ClientOnly>
                     <i class="fas fa-paperclip"></i>
                   </ClientOnly>
                 </label>
-                <input 
-                  type="text" 
-                  v-model="newMessage" 
-                  @keyup.enter="sendMessage" 
-                  placeholder="Escribe tu mensaje aquí..." 
+                <input
+                  type="text"
+                  v-model="newMessage"
+                  @keyup.enter="sendMessage"
+                  placeholder="Escribe tu mensaje aquí..."
                   class="form-control"
                 />
-                <button 
-                  class="btn btn-primary" 
-                  @click="sendMessage" 
-                  :disabled="!newMessage.trim() && !selectedFile"
+                <button
+                  class="btn btn-primary"
+                  @click="sendMessage"
+                  :disabled="!(newMessage && newMessage.trim()) && !selectedFile"
                 >
                   <ClientOnly>
                     <i class="fas fa-paper-plane"></i>
@@ -79,124 +79,155 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch, onBeforeUnmount } from 'vue';
+import { ref, onMounted, nextTick, watch, onBeforeUnmount, shallowRef } from 'vue';
 import { useNuxtApp } from '#app';
 
 // Datos del chat
 const messages = ref([]);
 const newMessage = ref('');
 const chatMessages = ref(null);
-const chatModal = ref(null);
+const chatModal = ref(null); // Referencia al objeto Modal de Bootstrap
 const selectedFile = ref(null);
 const selectedFilePreview = ref('');
 const fileInput = ref(null);
-const mensajeInicial = ref('');
+const mensajeInicial = ref(''); // Para mensaje pre-cargado al abrir modal
 
-// Lógica de inicialización del chat (anteriormente parte de startChat)
+const currentSessionId = ref(null);
+const currentUserId = ref(null);
+
+// Firebase instances - will be initialized on client-side
+const auth = shallowRef(null);
+const db = shallowRef(null);
+
 const initializeChat = async () => {
-  const { $firebase } = useNuxtApp();
-  const { auth, db } = $firebase;
-  const currentUser = auth.currentUser;
+  if (!auth.value) {
+    console.warn("initializeChat called before Firebase auth is initialized.");
+    if (!messages.value.some(m => m.text.includes("El chat se está inicializando"))) {
+        messages.value.push({
+          text: 'El chat se está inicializando, por favor espera...',
+          sender: 'admin',
+          timestamp: new Date()
+        });
+    }
+    return;
+  }
+
+  const currentUser = auth.value.currentUser;
 
   if (!currentUser) {
     console.warn("Usuario no autenticado al iniciar el chat.");
-    // Podrías añadir un mensaje indicando que se necesita iniciar sesión
-    messages.value.push({
-      text: 'Por favor, inicia sesión para usar el chat.',
-      sender: 'admin',
-      timestamp: new Date()
-    });
-    return; // Salir si no hay usuario
+    if (!messages.value.some(m => m.text.includes("inicia sesión para usar el chat"))) {
+        messages.value.push({
+          text: 'Por favor, inicia sesión para usar el chat.',
+          sender: 'admin',
+          timestamp: new Date()
+        });
+    }
+    return;
   }
-  
-  const userName = currentUser.displayName || 'Usuario'; // Usar nombre de Firebase o un genérico
 
-  // Mensaje inicial
-  messages.value.push({
-    text: `Hola ${userName}, ¿en qué podemos ayudarte?`,
-    sender: 'admin',
-    timestamp: new Date()
-  });
-  
-  // Guardar información inicial del chat en Firebase
+  currentUserId.value = currentUser.uid;
+  const userName = currentUser.displayName || 'Usuario';
+
+  // Limpiar mensajes anteriores si es una reinicialización y añadir el de bienvenida
+  if (messages.value.length === 0 || messages.value.every(m => m.sender !== 'admin' || !m.text.startsWith('Hola'))) {
+      messages.value.push({
+        text: `Hola ${userName}, ¿en qué podemos ayudarte?`,
+        sender: 'admin',
+        timestamp: new Date()
+      });
+  }
+
+
+  await createOrGetSession();
+
   try {
+    if (!db.value) {
+      console.error("Firestore (db) is not initialized in initializeChat.");
+      return;
+    }
     const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-    const chatRef = doc(db, "chats", currentUser.uid);
-      
-    // Considera si realmente necesitas guardar los mensajes aquí o solo al enviar el primero
+    const chatRef = doc(db.value, "chats", currentUser.uid);
+
     await setDoc(chatRef, {
-      userName: userName, // Guardar nombre de usuario de Firebase
-      userEmail: currentUser.email, // Guardar email de Firebase
-      messages: messages.value, // Guardar mensaje inicial
-      startedAt: serverTimestamp(), // Usar serverTimestamp para consistencia
+      userName: userName,
+      userEmail: currentUser.email,
+      messages: messages.value.filter(m => m.sender === 'admin' && m.text.startsWith('Hola')) // Solo el mensaje de bienvenida inicial
+                           .map(m => ({ ...m, text: m.text, sender: m.sender, timestamp: m.timestamp.toISOString() })),
+      startedAt: serverTimestamp(),
       userId: currentUser.uid
-    }, { merge: true }); // Usar merge: true por si el chat ya existía
+    }, { merge: true });
   } catch (error) {
     console.error("Error al guardar información inicial del chat:", error);
   }
 
-  // Asegurarse de hacer scroll después de añadir el mensaje inicial
   await scrollToBottom();
 };
 
-// Modificar sendToAgent para manejar mejor la imagen
-const sendToAgent = async (message, imageData = null) => {
-  try {
-    console.log('Enviando mensaje al agente:', message);
-    const apiUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://us-central1-[TU-PROYECTO-ID].cloudfunctions.net/agent'
-      : '/api/agent';
+const createOrGetSession = async () => {
+  if (currentSessionId.value) return;
 
-    // Preparar el mensaje
-    const requestBody = {
-      user_id: 'test_user',
-      session_id: '9058476628769767424',
-      message: message
-    };
-
-    // Si hay una imagen, incluirla en el cuerpo de la petición
-    if (imageData && imageData.startsWith('data:image/')) {
-      requestBody.image = imageData;
+  if (!currentUserId.value) {
+    if (!auth.value || !auth.value.currentUser) {
+        console.warn("createOrGetSession: auth not ready or no current user for currentUserId check.");
+        if (!messages.value.some(m => m.text.includes("Debes iniciar sesión"))) {
+             messages.value.push({ text: "Error: Debes iniciar sesión para crear una sesión de chat.", sender: 'admin', timestamp: new Date() });
+        }
+        return;
     }
+    currentUserId.value = auth.value.currentUser.uid;
+  }
+  
+  if (!currentUserId.value) { // Doble chequeo por si acaso
+      console.error("No se puede crear sesión: Usuario no autenticado (ID nulo).");
+      if (!messages.value.some(m => m.text.includes("Debes iniciar sesión"))) {
+           messages.value.push({ text: "Error: Debes iniciar sesión para crear una sesión de chat.", sender: 'admin', timestamp: new Date() });
+      }
+      return;
+  }
 
-    const response = await fetch(apiUrl, {
+
+  try {
+    console.log("Vue: Solicitando nueva sesión de chat para user_id:", currentUserId.value);
+    const response = await fetch('/api/create-session', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({ user_id: currentUserId.value })
     });
 
-    console.log('Estado de la respuesta:', response.status);
-    
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Error en la respuesta del agente: ${response.status} ${errorText}`);
+      throw new Error(`Error al crear sesión: ${response.status} ${errorText}`);
     }
-
-    return await response.json();
+    const data = await response.json();
+    if (data.session_id) {
+      currentSessionId.value = data.session_id;
+      console.log('Vue: Sesión creada/obtenida:', currentSessionId.value);
+    } else {
+      throw new Error('ID de sesión no devuelto por el servidor.');
+    }
   } catch (error) {
-    console.error('Error al comunicarse con el agente:', error);
-    throw error;
+    console.error('Vue: Error al crear u obtener sesión:', error);
+    if (!messages.value.some(m => m.text.includes("Error al iniciar la sesión"))) {
+        messages.value.push({ text: 'Error al iniciar la sesión de chat. Por favor, intenta recargar.', sender: 'admin', timestamp: new Date() });
+    }
   }
 };
 
-// Función para manejar la selección de archivos
 const handleFileSelect = async (event) => {
   const file = event.target.files[0];
   if (file && file.type.startsWith('image/')) {
     try {
-      // Comprimir la imagen antes de convertirla a base64
       const compressedImage = await compressImage(file);
-      selectedFile.value = file;
+      selectedFile.value = file; // Podrías guardar el archivo comprimido aquí si lo necesitas
       
-      // Crear preview de la imagen
       const reader = new FileReader();
       reader.onload = (e) => {
         selectedFilePreview.value = e.target.result;
       };
-      reader.readAsDataURL(compressedImage);
+      reader.readAsDataURL(compressedImage); // Usar el archivo comprimido para la preview
     } catch (error) {
       console.error('Error al procesar la imagen:', error);
       alert('Error al procesar la imagen. Por favor, intenta con otra imagen.');
@@ -204,7 +235,6 @@ const handleFileSelect = async (event) => {
   }
 };
 
-// Función para comprimir la imagen
 const compressImage = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -215,7 +245,6 @@ const compressImage = (file) => {
         let width = img.width;
         let height = img.height;
         
-        // Calcular nuevas dimensiones manteniendo el aspect ratio
         const maxSize = 800;
         if (width > height) {
           if (width > maxSize) {
@@ -235,7 +264,6 @@ const compressImage = (file) => {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
         
-        // Convertir a blob con calidad reducida
         canvas.toBlob((blob) => {
           if (blob) {
             resolve(new File([blob], file.name, {
@@ -245,7 +273,7 @@ const compressImage = (file) => {
           } else {
             reject(new Error('Error al comprimir la imagen'));
           }
-        }, 'image/jpeg', 0.7); // Calidad 70%
+        }, 'image/jpeg', 0.7);
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -255,7 +283,6 @@ const compressImage = (file) => {
   });
 };
 
-// Función para remover el archivo seleccionado
 const removeSelectedFile = () => {
   selectedFile.value = null;
   selectedFilePreview.value = '';
@@ -264,119 +291,161 @@ const removeSelectedFile = () => {
   }
 };
 
-// Función para convertir enlaces en el texto a elementos <a>
 const formatMessageWithLinks = (text) => {
   if (!text) return '';
-  // Expresión regular para detectar URLs
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   return text.replace(urlRegex, (url) => {
     return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
   });
 };
 
-// Modificar la función sendMessage para manejar mejor las imágenes
 const sendMessage = async () => {
-  if (!newMessage.value.trim() && !selectedFile.value) return;
+  if (!(newMessage.value && newMessage.value.trim()) && !selectedFile.value) return;
+
+  if (!currentUserId.value) {
+    console.error("Vue: Usuario no identificado. No se puede enviar mensaje.");
+    messages.value.push({ text: "Error: Usuario no identificado. Por favor, recarga.", sender: 'admin', timestamp: new Date() });
+    return;
+  }
+
+  if (!currentSessionId.value) {
+    await createOrGetSession();
+    if (!currentSessionId.value) {
+      console.error("Vue: ID de sesión no establecido. No se puede enviar mensaje.");
+      messages.value.push({ text: "Error: No se pudo establecer la sesión de chat. Por favor, recarga.", sender: 'admin', timestamp: new Date() });
+      return;
+    }
+  }
   
   const messageText = newMessage.value;
   const timestamp = new Date();
-
-  // Si hay una imagen, convertirla a base64
   let imageData = null;
   if (selectedFile.value) {
-    imageData = selectedFilePreview.value;
+    imageData = selectedFilePreview.value; // Usar la preview base64
   }
 
-  // Crear el mensaje del usuario
   const userMessage = {
-    text: messageText || 'Imagen adjunta',
+    text: messageText || (imageData ? 'Imagen adjunta' : ''),
     sender: 'user',
     timestamp: timestamp,
     image: imageData
   };
   
-  // Agregar mensaje del usuario a la lista
   messages.value.push(userMessage);
-  
-  // Limpiar campos
   newMessage.value = '';
   removeSelectedFile();
-  
-  // Scroll al final después de añadir mensaje del usuario
   await scrollToBottom();
 
   try {
-    // Enviar mensaje al agente
-    const response = await sendToAgent(messageText, imageData);
-    
-    // Extraer el texto del mensaje del agente
-    let messageContent = '';
-    
-    if (response.message) {
-      try {
-        // Si el mensaje es una cadena que parece JSON con comillas simples
-        if (typeof response.message === 'string' && response.message.includes("'")) {
-          // Reemplazar comillas simples por dobles
-          const jsonStr = response.message
-            .replace(/'/g, '"')
-            .replace(/\\n/g, '\\n');
-          
-          console.log('Procesando JSON:', jsonStr);
-          const parsedMessage = JSON.parse(jsonStr);
-          
-          if (parsedMessage.content?.parts?.[0]?.text) {
-            messageContent = parsedMessage.content.parts[0].text;
+    const requestBodyToApiAgent = {
+      user_id: currentUserId.value,
+      session_id: currentSessionId.value,
+      message: messageText,
+      // image: imageData, // Descomentar si el backend está listo para imágenes
+    };
+
+    const response = await fetch('/api/agent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify(requestBodyToApiAgent)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Error del servicio del agente: ${response.status} ${errorText}`);
+    }
+
+    if (!response.body) {
+        throw new Error("No hay cuerpo de respuesta del servicio del agente.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentAgentMessageText = '';
+    let agentMessageRef = null;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf('\n\n');
+
+      while (boundary !== -1) {
+        const chunk = buffer.substring(0, boundary);
+        buffer = buffer.substring(boundary + 2);
+        
+        if (chunk.startsWith('data: ')) {
+          const jsonData = chunk.substring(6);
+          try {
+            const eventData = JSON.parse(jsonData);
+            console.log('Vue: Datos del evento SSE:', eventData);
+
+            let partText = '';
+            if (eventData.message?.content?.parts?.[0]?.text) {
+              partText = eventData.message.content.parts[0].text;
+            } else if (eventData.type === "error" && eventData.message) {
+              partText = `Error del agente: ${eventData.message}`;
+            } else if (eventData.type === "unknown_event" && eventData.data_str) {
+              console.log("Vue: Intentando parsear data_str de unknown_event:", eventData.data_str);
+              try {
+                // Reemplazar comillas simples de Python por dobles para que sea JSON válido
+                const jsonCompatibleStr = eventData.data_str.replace(/'/g, '"');
+                const parsedDataStr = JSON.parse(jsonCompatibleStr);
+                if (parsedDataStr.content?.parts?.[0]?.text) {
+                  partText = parsedDataStr.content.parts[0].text;
+                }
+              } catch (parseError) {
+                console.error("Vue: Error al parsear data_str de unknown_event:", parseError, "String original:", eventData.data_str);
+                partText = `Evento no reconocido (sin parsear): ${eventData.data_str.substring(0, 100)}...`; // Mostrar un fragmento
+              }
+            }
+
+            if (partText) {
+              currentAgentMessageText += partText;
+              if (!agentMessageRef) {
+                const newAgentMessage = {
+                  text: currentAgentMessageText.replace(/\\n/g, '\n'),
+                  sender: 'admin',
+                  timestamp: new Date(),
+                };
+                messages.value.push(newAgentMessage);
+                agentMessageRef = messages.value[messages.value.length - 1];
+              } else {
+                agentMessageRef.text = currentAgentMessageText.replace(/\\n/g, '\n');
+              }
+              await scrollToBottom();
+            }
+          } catch (e) {
+            console.error('Vue: Error al parsear datos JSON de SSE:', e, "Datos:", jsonData);
           }
-        } else {
-          // Si es un objeto o una cadena simple
-          messageContent = typeof response.message === 'object' 
-            ? response.message.content?.parts?.[0]?.text || JSON.stringify(response.message)
-            : response.message;
         }
-      } catch (e) {
-        console.error('Error al procesar el mensaje:', e);
-        messageContent = response.message;
+        boundary = buffer.indexOf('\n\n');
       }
     }
-
-    // Si no pudimos extraer el mensaje, usar un valor por defecto
-    if (!messageContent) {
-      messageContent = 'Lo siento, no pude procesar la respuesta correctamente.';
-    }
-    
-    // Agregar respuesta del agente
-    const agentMessage = {
-      text: messageContent.replace(/\\n/g, '\n'),
-      sender: 'admin',
-      timestamp: new Date()
-    };
-    
-    messages.value.push(agentMessage);
-    await scrollToBottom();
-
   } catch (error) {
-    // En caso de error, mostrar mensaje de error
+    console.error("Vue: Error al enviar mensaje o procesar stream:", error);
     const errorMessage = {
-      text: error.message || 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta nuevamente.',
+      text: `Error: ${error.message || 'No se pudo comunicar con el agente. Intenta nuevamente.'}`,
       sender: 'admin',
       timestamp: new Date()
     };
-    
     messages.value.push(errorMessage);
     await scrollToBottom();
   }
 };
 
-// Formatear hora del mensaje
 const formatTime = (timestamp) => {
   if (!timestamp) return '';
-  
-  // Asegurarse que es un objeto Date, convertir si es Timestamp de Firebase
-  const date = timestamp instanceof Date ? timestamp : (timestamp?.toDate ? timestamp.toDate() : new Date());
+  const date = timestamp instanceof Date ? timestamp : new Date(timestamp?.toDate ? timestamp.toDate() : timestamp);
   return date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 };
 
-// Hacer scroll al final de los mensajes
 const scrollToBottom = async () => {
   await nextTick();
   if (chatMessages.value) {
@@ -384,42 +453,114 @@ const scrollToBottom = async () => {
   }
 };
 
-// Observar cambios en los mensajes para hacer scroll
-watch(messages, () => {
-  scrollToBottom();
-}, { deep: true }); // Usar deep watch si los objetos dentro del array pueden cambiar
+watch(messages, scrollToBottom, { deep: true });
 
-// Función para vaciar el chat
-const vaciarChat = () => {
+const vaciarChat = async () => {
   messages.value = [];
   mensajeInicial.value = '';
+  currentSessionId.value = null;
   
-  // Si hay un usuario autenticado, reinicializar el chat
-  const { $firebase } = useNuxtApp();
-  const { auth } = $firebase;
-  
-  if (auth.currentUser) {
-    initializeChat();
+  if (auth.value && auth.value.currentUser) {
+    await initializeChat();
+  } else {
+    if (!messages.value.some(m => m.text.includes("inicia sesión para usar el chat"))) {
+        messages.value.push({
+          text: 'Por favor, inicia sesión para usar el chat.',
+          sender: 'admin',
+          timestamp: new Date()
+        });
+    }
   }
 };
 
+let abrirChatListener = null;
+let shownModalListener = null; // Para poder removerlo
+
 onMounted(() => {
+  const nuxtApp = useNuxtApp();
+  if (nuxtApp.$firebase && nuxtApp.$firebase.auth && nuxtApp.$firebase.db) {
+    auth.value = nuxtApp.$firebase.auth;
+    db.value = nuxtApp.$firebase.db;
+    console.log("ChatModal: Firebase auth and db initialized on client mount.");
+    currentUserId.value = auth.value.currentUser ? auth.value.currentUser.uid : null;
+  } else {
+    console.error("ChatModal: $firebase or its properties (auth, db) not available on client mount. Check Firebase plugin.");
+    if (!messages.value.some(m => m.text.includes("Error al cargar el chat"))) {
+        messages.value.push({
+          text: 'Error al cargar el chat. Por favor, intenta recargar la página.',
+          sender: 'admin',
+          timestamp: new Date()
+        });
+    }
+    return;
+  }
+
   const modalElement = document.getElementById('chatModal');
   if (modalElement) {
-    chatModal.value = new bootstrap.Modal(modalElement);
-    
-    // Escuchar el evento abrir-chat
-    window.addEventListener('abrir-chat', (event) => {
+    // Importar Bootstrap dinámicamente en el cliente
+    import('bootstrap/js/dist/modal').then(module => {
+      const BootstrapModal = module.default;
+      chatModal.value = new BootstrapModal(modalElement); // Guardar la instancia
+    });
+
+    shownModalListener = async () => {
+      if (!auth.value) {
+        console.warn("shown.bs.modal: auth.value not ready.");
+        if (!messages.value.some(m => m.text.includes("El chat aún se está cargando"))) {
+             messages.value.push({ text: 'El chat aún se está cargando...', sender: 'admin', timestamp: new Date() });
+        }
+        return;
+      }
+
+      if (auth.value.currentUser && (!messages.value.length || messages.value.every(m => m.sender !== 'admin' || !m.text.startsWith('Hola')))) {
+        await initializeChat();
+      } else if (!auth.value.currentUser && !messages.value.length) {
+         if (!messages.value.some(m => m.text.includes("inicia sesión para usar el chat"))) {
+            messages.value.push({
+                text: 'Por favor, inicia sesión para usar el chat.',
+                sender: 'admin',
+                timestamp: new Date()
+            });
+         }
+      }
+      scrollToBottom();
+    };
+    modalElement.addEventListener('shown.bs.modal', shownModalListener);
+
+    abrirChatListener = async (event) => {
       if (event.detail) {
         mensajeInicial.value = event.detail;
       }
-      chatModal.value.show();
-    });
+      if (auth.value) {
+        currentUserId.value = auth.value.currentUser ? auth.value.currentUser.uid : null;
+      }
+
+      if (currentUserId.value && !currentSessionId.value && auth.value) {
+          await createOrGetSession();
+      }
+      if (chatModal.value && typeof chatModal.value.show === 'function') {
+        chatModal.value.show();
+      } else {
+        // Fallback si la instancia de Bootstrap no está lista (poco probable si se importa arriba)
+        const bsModal = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
+        bsModal.show();
+      }
+    };
+    window.addEventListener('abrir-chat', abrirChatListener);
   }
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('abrir-chat', () => {});
+  if (abrirChatListener) {
+    window.removeEventListener('abrir-chat', abrirChatListener);
+  }
+  const modalElement = document.getElementById('chatModal');
+  if (modalElement && shownModalListener) {
+    modalElement.removeEventListener('shown.bs.modal', shownModalListener);
+  }
+  if (chatModal.value && typeof chatModal.value.dispose === 'function') {
+    chatModal.value.dispose(); // Limpiar la instancia del modal de Bootstrap
+  }
 });
 </script>
 
@@ -479,76 +620,80 @@ onBeforeUnmount(() => {
 
 .chat-input {
   display: flex;
-  align-items: center; /* Centrar verticalmente input y botón */
+  /* align-items: center; Centrar verticalmente input y botón */
+  flex-direction: column; /* Para que la preview esté debajo */
   padding: 0.75rem 1rem; /* Ajustar padding */
   border-top: 1px solid #e9ecef;
   background-color: #f8f9fa; /* Fondo ligeramente gris */
 }
 
-.chat-input input {
+.chat-input .input-group { /* Estilo para el grupo de input y botones */
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+
+.chat-input input.form-control { /* Específico para el input de texto */
   flex-grow: 1;
   border: 1px solid #ced4da;
   border-radius: 1.5rem; /* Bordes redondeados */
   padding: 0.6rem 1.2rem; /* Más padding interno */
-  margin-right: 0.75rem; /* Más espacio antes del botón */
+  /* margin-right: 0.75rem; Espacio manejado por gap en input-group */
   font-size: 0.95rem; /* Tamaño de fuente ligeramente mayor */
   outline: none; /* Quitar borde al enfocar */
   box-shadow: none; /* Quitar sombra al enfocar */
 }
-.chat-input input:focus {
+.chat-input input.form-control:focus {
   border-color: #86b7fe; /* Cambiar color de borde al enfocar */
 }
 
-.chat-input button {
+.chat-input button.btn { /* Estilo para los botones de enviar y adjuntar */
   border-radius: 50%;
-  padding: 0; /* Quitar padding extra si se usan dimensiones fijas */
-  width: 2.8rem; /* Tamaño del botón un poco más grande */
+  padding: 0;
+  width: 2.8rem;
   height: 2.8rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0; /* Evitar que el botón se encoja */
-  transition: background-color 0.2s ease; /* Transición suave */
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
 }
-.chat-input button:hover:not(:disabled) {
-  background-color: #0b5ed7; /* Oscurecer un poco en hover */
+.chat-input button.btn:hover:not(:disabled) {
+  background-color: #0b5ed7; /* Oscurecer un poco en hover para el primario */
 }
-.chat-input button:disabled {
-  opacity: 0.65; /* Opacidad estándar para deshabilitado */
-  cursor: not-allowed;
-}
-.chat-input button i {
-  font-size: 1.1rem; /* Icono un poco más grande */
+.chat-input button.btn.btn-outline-secondary:hover:not(:disabled) {
+  background-color: #5a6268; /* Un gris más oscuro para el secundario */
+  color: white;
 }
 
-/* Estilo del formulario eliminado */
-/* 
-.chat-form {
-  padding: 1rem;
-  background-color: #f8f9fa;
-  border-radius: 0.5rem;
-} 
-*/
+.chat-input button.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.chat-input button.btn i {
+  font-size: 1.1rem;
+}
 
 /* Mejoras generales al modal */
 .modal-content {
-  border-radius: 0.75rem; /* Bordes más redondeados */
-  overflow: hidden; /* Para asegurar que el contenido respete los bordes */
+  border-radius: 0.75rem;
+  overflow: hidden;
 }
 .modal-header {
-  background-color: #0d6efd; /* Azul primario de Bootstrap */
+  background-color: #0d6efd;
   color: white;
-  border-bottom: none; /* Quitar borde inferior */
-  padding: 1rem 1.5rem; /* Más padding */
+  border-bottom: none;
+  padding: 1rem 1.5rem;
 }
 .modal-header .btn-close {
-  filter: invert(1) grayscale(100%) brightness(200%); /* Botón de cierre blanco */
+  filter: invert(1) grayscale(100%) brightness(200%);
 }
 .modal-title {
-  font-weight: 500; /* Peso de fuente medio */
+  font-weight: 500;
 }
 .modal-body {
-  padding: 0; /* Quitar padding del body para controlar el padding en .chat-container */
+  padding: 0;
 }
 
 .message-image {
@@ -557,18 +702,11 @@ onBeforeUnmount(() => {
   margin-bottom: 8px;
 }
 
-.input-group {
-  display: flex;
-  align-items: center;
+.input-group { /* Ya definido arriba, pero para asegurar que tenga gap */
   gap: 8px;
 }
 
-.attach-button {
-  padding: 8px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.attach-button { /* Ya es un .btn, así que hereda estilos */
   cursor: pointer;
 }
 
@@ -577,24 +715,39 @@ onBeforeUnmount(() => {
   color: white;
   border-color: #198754;
 }
+.attach-button.has-file:hover {
+  background-color: #157347;
+}
+
 
 .selected-file-preview {
   position: relative;
   margin-top: 8px;
-  display: inline-block;
+  display: inline-block; /* Para que no ocupe todo el ancho */
+  align-self: flex-start; /* Alinear a la izquierda debajo del input */
+  max-width: 50%; /* Limitar el ancho de la preview */
 }
 
 .preview-image {
   max-height: 100px;
+  max-width: 100%; /* Para que se ajuste al contenedor .selected-file-preview */
   border-radius: 8px;
+  display: block; /* Para evitar espacio extra debajo */
 }
 
 .remove-file {
   position: absolute;
-  top: -8px;
-  right: -8px;
+  top: -10px; /* Ajustar para que esté un poco más arriba */
+  right: -10px; /* Ajustar para que esté un poco más a la derecha */
   border-radius: 50%;
-  padding: 4px 8px;
+  padding: 0;
+  width: 24px; /* Tamaño fijo */
+  height: 24px; /* Tamaño fijo */
+  font-size: 0.8rem; /* Tamaño del icono */
+  line-height: 1; /* Para centrar el icono si es texto */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Estilos para los enlaces en los mensajes */
@@ -607,6 +760,8 @@ onBeforeUnmount(() => {
   color: #0a58ca;
 }
 
+/* No es necesario diferenciar el color del enlace por tipo de mensaje si se quiere consistencia */
+/*
 .admin-message .message-content p a {
   color: #0d6efd;
 }
@@ -614,4 +769,5 @@ onBeforeUnmount(() => {
 .user-message .message-content p a {
   color: #0d6efd;
 }
-</style> 
+*/
+</style>
